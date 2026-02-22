@@ -4,3 +4,4 @@ DEV/
 .idea/copilot*
 warlock.sqlite
 .vagrant/
+.CLAUDE_LAST_SESSION.md
