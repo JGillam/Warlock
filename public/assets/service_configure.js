@@ -1,6 +1,102 @@
 let serviceRunning = false;
 
 /**
+ * Export current service and application configs to a JSON file download.
+ *
+ * @param {string} app_guid
+ * @param {string} host
+ * @param {string} service
+ */
+function exportConfigs(app_guid, host, service) {
+	Promise.all([
+		fetch(`/api/service/configs/${app_guid}/${host}/${service}`).then(r => r.json()),
+		fetch(`/api/application/configs/${app_guid}/${host}`).then(r => r.json())
+	])
+		.then(([svcResult, appResult]) => {
+			if (!svcResult.success || !appResult.success) {
+				showToast('error', 'Failed to export configuration: could not retrieve configs from server.');
+				return;
+			}
+
+			const data = {
+				exported_at: new Date().toISOString(),
+				app_guid,
+				service,
+				service_configs: (svcResult.configs || []).map(c => ({ option: c.option, value: c.value })),
+				app_configs: (appResult.configs || []).map(c => ({ option: c.option, value: c.value }))
+			};
+
+			const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+				a = document.createElement('a');
+			a.href = URL.createObjectURL(blob);
+			a.download = `warlock-config-${service}-${new Date().toISOString().split('T')[0]}.json`;
+			a.click();
+			URL.revokeObjectURL(a.href);
+		})
+		.catch(() => {
+			showToast('error', 'Failed to export configuration.');
+		});
+}
+
+/**
+ * Import configs from a JSON file and apply them to the current service and application.
+ * Reloads the page after a successful import.
+ *
+ * @param {string} app_guid
+ * @param {string} host
+ * @param {string} service
+ */
+function importConfigs(app_guid, host, service) {
+	const fileInput = document.createElement('input');
+	fileInput.type = 'file';
+	fileInput.accept = '.json,application/json';
+
+	fileInput.addEventListener('change', async () => {
+		const file = fileInput.files[0];
+		if (!file) return;
+
+		let data;
+		try {
+			data = JSON.parse(await file.text());
+		} catch {
+			showToast('error', 'Import failed: invalid JSON file.');
+			return;
+		}
+
+		try {
+			if (data.app_configs && data.app_configs.length > 0) {
+				const body = {};
+				data.app_configs.forEach(c => { body[c.option] = c.value; });
+				const r = await fetch(`/api/application/configs/${app_guid}/${host}`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body)
+				}).then(res => res.json());
+				if (!r.success) throw new Error(r.error || 'Failed to apply application configs');
+			}
+
+			if (data.service_configs && data.service_configs.length > 0) {
+				const body = {};
+				data.service_configs.forEach(c => { body[c.option] = c.value; });
+				const r = await fetch(`/api/service/configs/${app_guid}/${host}/${service}`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body)
+				}).then(res => res.json());
+				if (!r.success) throw new Error(r.error || 'Failed to apply service configs');
+			}
+
+			showToast('success', 'Configuration imported successfully.');
+			window.location.reload();
+		} catch (err) {
+			showToast('error', `Import failed: ${err.message}`);
+		}
+	});
+
+	fileInput.click();
+}
+
+/**
  * Build the HTML for configuration options received from the server
  *
  * Populates to the container with the ID configurationContainer on the main page
@@ -291,6 +387,15 @@ window.addEventListener('DOMContentLoaded', () => {
 									if (configurationContainer.querySelectorAll('input').length === 0) {
 										configurationContainer.innerHTML = '<div class="alert alert-info" role="alert">No configuration options available for this service or application.</div>';
 									}
+
+									const exportBtn = document.getElementById('exportConfigBtn'),
+										importBtn = document.getElementById('importConfigBtn');
+									exportBtn.disabled = false;
+									exportBtn.classList.remove('disabled');
+									importBtn.disabled = false;
+									importBtn.classList.remove('disabled');
+									exportBtn.addEventListener('click', () => exportConfigs(app_guid, host, service));
+									importBtn.addEventListener('click', () => importConfigs(app_guid, host, service));
 								});
 						});
 				});
