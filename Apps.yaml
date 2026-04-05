@@ -120,6 +120,25 @@
   image: media/valheim-1920x1080.webp
   icon: media/valheim-128x128.webp
   thumbnail: media/valheim-640x354.webp
+- guid: dd14b58a-d1ac-43dd-aa81-ce0c865a8023
+  title: ASKA
+  source: github
+  repo: BitsNBytes25/ASKA-Installer
+  installer: dist/installer.sh
+  author: Charlie Powell <cdp1337@bitsnbytes.dev>
+  category: Game Server
+  supports:
+    - "Debian 12, 13"
+    - "Ubuntu 24.04"
+  syntax:
+    - "--uninstall  - Perform an uninstallation"
+    - "--dir=<path> - Use a custom installation directory instead of the default (optional)"
+    - "--skip-firewall  - Do not install or configure a system firewall"
+    - "--non-interactive  - Run the installer in non-interactive mode (useful for scripted installs)"
+    - "--branch=<str> - Use a specific branch of the management script repository DEFAULT=main"
+  image: media/aska-1920x1080.webp
+  icon: media/aska-128x128.webp
+  thumbnail: media/aska-640x360.webp
 - guid: acdf1bec-2906-c20f-5a59-b0df072c29e8
   title: VEIN
   source: github
