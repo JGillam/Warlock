@@ -2,7 +2,7 @@
 #
 # Install ASKA Server
 #
-# https://github.com/BitsNBytes25/ASKA-Installer
+# https://github.com/jgillam/ASKA-Installer
 #
 # Please ensure to run this script as root (or at least with sudo)
 #
@@ -42,7 +42,7 @@
 INSTALLER_VERSION="v20260405"
 GAME="ASKA"
 GAME_DESC="ASKA Dedicated Server"
-REPO="BitsNBytes25/ASKA-Installer"
+REPO="jgillam/ASKA-Installer"
 WARLOCK_GUID="dd14b58a-d1ac-43dd-aa81-ce0c865a8023"
 GAME_USER="aska"
 GAME_DIR="/home/${GAME_USER}/${GAME}"
@@ -58,7 +58,7 @@ Options:
     --non-interactive  - Run the installer in non-interactive mode (useful for scripted installs)
     --branch=<str> - Use a specific branch of the management script repository DEFAULT=main
 
-https://github.com/BitsNBytes25/ASKA-Installer
+https://github.com/jgillam/ASKA-Installer
 
 Please ensure to run this script as root (or at least with sudo)
 

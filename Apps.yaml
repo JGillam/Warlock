@@ -123,7 +123,7 @@
 - guid: dd14b58a-d1ac-43dd-aa81-ce0c865a8023
   title: ASKA
   source: github
-  repo: BitsNBytes25/ASKA-Installer
+  repo: jgillam/ASKA-Installer
   installer: dist/installer.sh
   author: Charlie Powell <cdp1337@bitsnbytes.dev>
   category: Game Server
