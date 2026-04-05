@@ -125,6 +125,7 @@ class GameApp(SteamApp):
 		cmd = Cmd([
 			guess_steamcmd_path(),
 			'+@sSteamCmdForcePlatformType', 'windows',
+			'+@sSteamCmdForcePlatformBitness', '64',
 			'+force_install_dir',
 			os.path.join(self.get_app_directory(), 'AppFiles'),
 			'+login',
@@ -132,7 +133,7 @@ class GameApp(SteamApp):
 			'+app_update',
 			self.steam_id,
 		])
-		cmd.sudo(self.get_app_uid())
+		cmd.sudo(utils.get_app_uid())
 		cmd.stream_output()
 		cmd.append('validate')
 		cmd.append('+quit')
@@ -152,7 +153,7 @@ class GameApp(SteamApp):
 		"""Initialize the Wine prefix for the game user via a virtual display."""
 		logging.info('Initializing Wine prefix...')
 		cmd = Cmd(['xvfb-run', '-a', 'wineboot', '--init'])
-		cmd.sudo(self.get_app_uid())
+		cmd.sudo(utils.get_app_uid())
 		try:
 			cmd.run()
 		except Exception as e:
