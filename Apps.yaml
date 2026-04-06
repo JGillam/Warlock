@@ -136,9 +136,9 @@
     - "--skip-firewall  - Do not install or configure a system firewall"
     - "--non-interactive  - Run the installer in non-interactive mode (useful for scripted installs)"
     - "--branch=<str> - Use a specific branch of the management script repository DEFAULT=main"
-  image: media/aska-1920x1080.webp
-  icon: media/aska-128x128.webp
-  thumbnail: media/aska-640x360.webp
+  image: media/aska-1920x1080.jpg
+  icon: media/aska-460x215.jpg
+  thumbnail: media/aska-616x353.jpg
 - guid: acdf1bec-2906-c20f-5a59-b0df072c29e8
   title: VEIN
   source: github
