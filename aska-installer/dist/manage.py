@@ -24,8 +24,10 @@ sys.path.insert(
 	)
 )
 
+import glob
 import logging
 import pwd
+import subprocess
 import time
 from warlock_manager.apps.steam_app import SteamApp, guess_steamcmd_path
 from warlock_manager.services.base_service import BaseService
@@ -73,12 +75,14 @@ class GameApp(SteamApp):
 		# Download ASKA server files via SteamCMD (Windows depot)
 		self.update()
 
-		# Create the Wine prefix directory; Wine initializes it on first launch.
+		# Initialize the Wine prefix.  Wine 11's new WoW64 mode does not populate
+		# C:\windows\syswow64 during wineboot; _init_wine() handles that manually.
 		wineprefix_dir = os.path.join(utils.get_app_directory(), 'wineprefix')
 		if not os.path.exists(wineprefix_dir):
 			os.makedirs(wineprefix_dir)
 			game_uid = pwd.getpwnam(utils.get_app_uid()).pw_uid
 			os.chown(wineprefix_dir, game_uid, game_uid)
+		self._init_wine()
 
 		# SteamCMD ships a server properties.txt in AppFiles with the correct format.
 		# Only create a fallback if it was somehow absent after download.
@@ -154,6 +158,59 @@ class GameApp(SteamApp):
 				time.sleep(10)
 
 		return cmd.success
+
+	def _init_wine(self):
+		"""
+		Initialize the Wine prefix and populate syswow64 for WoW64 support.
+
+		Wine 11's new WoW64 mode creates C:\\windows\\syswow64 during wineboot
+		but leaves it empty. The 32-bit WoW64 thunk (start.exe) needs kernel32
+		and other i386 DLLs from that directory to bootstrap any Wine process —
+		including 64-bit ones. Without them every 'wine <app>.exe' call fails
+		immediately with 'could not load kernel32.dll'. We symlink the Wine
+		installation's i386-windows DLLs in after wineboot completes.
+		"""
+		wineprefix_dir = os.path.join(utils.get_app_directory(), 'wineprefix')
+		syswow64 = os.path.join(wineprefix_dir, 'drive_c', 'windows', 'syswow64')
+
+		if os.path.exists(syswow64) and os.listdir(syswow64):
+			logging.info('Wine prefix already initialized, skipping wineboot.')
+			return
+
+		logging.info('Initializing Wine prefix via wineboot (this may take a few minutes)...')
+		home_dir = os.path.expanduser('~' + utils.get_app_uid())
+		try:
+			subprocess.run(
+				[
+					'sudo', '-u', utils.get_app_uid(), 'env',
+					'WINEPREFIX=' + wineprefix_dir,
+					'WINEDEBUG=-all',
+					'HOME=' + home_dir,
+					'xvfb-run', '-a', 'wineboot', '--init',
+				],
+				timeout=600,
+			)
+		except Exception as e:
+			logging.warning('wineboot produced an error (may be non-fatal): %s' % e)
+
+		# Locate the Wine i386-windows DLL directory via the wine binary's realpath.
+		wine_bin = os.path.realpath('/usr/bin/wine')
+		i386_windows = os.path.normpath(
+			os.path.join(os.path.dirname(wine_bin), '..', 'lib', 'wine', 'i386-windows')
+		)
+		if not os.path.exists(i386_windows):
+			i386_windows = '/usr/lib/wine/i386-windows'
+
+		if os.path.exists(syswow64) and os.path.exists(i386_windows):
+			for src in glob.glob(os.path.join(i386_windows, '*.dll')) + glob.glob(os.path.join(i386_windows, '*.exe')):
+				dst = os.path.join(syswow64, os.path.basename(src))
+				if not os.path.exists(dst):
+					os.symlink(src, dst)
+			logging.info('Populated syswow64 with Wine i386 DLLs from %s.' % i386_windows)
+		elif not os.path.exists(syswow64):
+			logging.warning('syswow64 not found after wineboot; Wine prefix may be incomplete.')
+		else:
+			logging.warning('Wine i386-windows dir not found at %s; syswow64 not populated.' % i386_windows)
 
 	def _create_default_properties(self, path: str):
 		"""Write a minimal default server properties file in ASKA's native format."""
