@@ -25,6 +25,7 @@ sys.path.insert(
 )
 
 import logging
+import pwd
 import time
 from warlock_manager.apps.steam_app import SteamApp, guess_steamcmd_path
 from warlock_manager.services.base_service import BaseService
@@ -72,11 +73,16 @@ class GameApp(SteamApp):
 		# Download ASKA server files via SteamCMD (Windows depot)
 		self.update()
 
-		# Initialize the Wine prefix for the game user so the server can start cleanly
-		self._init_wine()
+		# Create the Wine prefix directory; Wine initializes it on first launch.
+		wineprefix_dir = os.path.join(utils.get_app_directory(), 'wineprefix')
+		if not os.path.exists(wineprefix_dir):
+			os.makedirs(wineprefix_dir)
+			game_uid = pwd.getpwnam(utils.get_app_uid()).pw_uid
+			os.chown(wineprefix_dir, game_uid, game_uid)
 
-		# Create a default server properties file if one doesn't exist yet
-		props_path = os.path.join(utils.get_app_directory(), 'server properties.txt')
+		# SteamCMD ships a server properties.txt in AppFiles with the correct format.
+		# Only create a fallback if it was somehow absent after download.
+		props_path = os.path.join(utils.get_app_directory(), 'AppFiles', 'server properties.txt')
 		if not os.path.exists(props_path):
 			self._create_default_properties(props_path)
 
@@ -149,29 +155,19 @@ class GameApp(SteamApp):
 
 		return cmd.success
 
-	def _init_wine(self):
-		"""Initialize the Wine prefix for the game user via a virtual display."""
-		logging.info('Initializing Wine prefix...')
-		cmd = Cmd(['xvfb-run', '-a', 'wineboot', '--init'])
-		cmd.sudo(utils.get_app_uid())
-		try:
-			cmd.run()
-		except Exception as e:
-			# Wine prefix init may produce Xlib warnings in headless mode but
-			# those are non-fatal; the first server start will complete setup.
-			logging.warning('Wine prefix init produced an error (may be non-fatal): %s' % e)
-
 	def _create_default_properties(self, path: str):
-		"""Write a default server properties file."""
+		"""Write a minimal default server properties file in ASKA's native format."""
 		content = (
-			'Server Name=ASKA Server\n'
-			'Password=\n'
-			'Steam game port=27015\n'
-			'Steam query port=27016\n'
-			'Authentication token=\n'
-			'keep server world alive=false\n'
-			'Autosave frequency=10 min\n'
-			'Max Players=8\n'
+			'display name = Default Session\n'
+			'server name = My ASKA Server\n'
+			'save id =\n'
+			'password =\n'
+			'steam game port = 27015\n'
+			'steam query port = 27016\n'
+			'authentication token =\n'
+			'region = default\n'
+			'keep server world alive = false\n'
+			'autosave style = every morning\n'
 		)
 		with open(path, 'w') as f:
 			f.write(content)
@@ -182,14 +178,16 @@ class GameService(BaseService):
 	"""
 	ASKA service instance manager.
 
-	Wraps AskaServer.exe (Windows binary) under xvfb-run + Wine.
+	Runs AskaServer.exe via Wine under a virtual display (xvfb-run).
 	ASKA has no RCON or HTTP API, so player count is unavailable.
 	"""
 
 	def __init__(self, service: str, game: GameApp):
 		super().__init__(service, game)
+		# The properties file lives inside AppFiles, which is the WorkingDirectory
+		# for the service. self.get_app_directory() returns that AppFiles path.
 		self.configs = {
-			'game': PropertiesConfig('game', os.path.join(utils.get_app_directory(), 'server properties.txt'))
+			'game': PropertiesConfig('game', os.path.join(self.get_app_directory(), 'server properties.txt'))
 		}
 		self.load()
 
@@ -197,14 +195,26 @@ class GameService(BaseService):
 		"""
 		Return the ExecStart string for the systemd unit.
 
-		xvfb-run -a auto-selects a free virtual display number, avoiding
-		conflicts with other Xvfb instances on the host.
-		The -propertiesPath argument uses an absolute path because the
-		filename contains a space ('server properties.txt').
+		xvfb-run is required because Wine's background subsystem (explorer.exe etc.)
+		still attempts to create windows even in -nographics mode.
+
+		Both the exe and -propertiesPath are relative to WorkingDirectory (AppFiles),
+		matching the layout the shipped AskaServer.bat uses.
 		"""
-		exe = os.path.join(self.get_app_directory(), 'AskaServer.exe')
-		props = os.path.join(utils.get_app_directory(), 'server properties.txt')
-		return f"/usr/bin/xvfb-run -a /usr/bin/wine {exe} -nographics -batchmode -propertiesPath '{props}'"
+		return (
+			'xvfb-run -a wine AskaServer.exe'
+			' -nographics -batchmode'
+			' -propertiesPath "server properties.txt"'
+		)
+
+	def get_environment(self) -> dict:
+		"""Return the env vars required by Wine."""
+		wineprefix_dir = os.path.join(utils.get_app_directory(), 'wineprefix')
+		return {
+			'WINEPREFIX': wineprefix_dir,
+			'WINEARCH': 'win64',
+			'WINEDEBUG': '-all',
+		}
 
 	def is_api_enabled(self) -> bool:
 		return False
@@ -213,11 +223,8 @@ class GameService(BaseService):
 		# ASKA has no queryable API; return None (unknown) rather than 0 (empty).
 		return None
 
-	def get_player_max(self) -> int | None:
-		return self.get_option_value('Max Players')
-
 	def get_port(self) -> int | None:
-		return self.get_option_value('Steam game port')
+		return self.get_option_value('steam game port')
 
 	def get_game_pid(self) -> int:
 		"""
@@ -243,27 +250,27 @@ class GameService(BaseService):
 		return pid
 
 	def get_name(self) -> str:
-		return self.get_option_value('Server Name')
+		return self.get_option_value('server name')
 
 	def get_port_definitions(self) -> list:
 		return [
-			('Steam game port', 'udp', '%s game port' % self.game.name),
-			('Steam query port', 'udp', '%s Steam query port' % self.game.name),
+			('steam game port', 'udp', '%s game port' % self.game.name),
+			('steam query port', 'udp', '%s Steam query port' % self.game.name),
 		]
 
 	def option_value_updated(self, option: str, previous_value, new_value):
-		if option == 'Steam game port':
+		if option == 'steam game port':
 			if previous_value:
 				Firewall.remove(int(previous_value), 'udp')
 			Firewall.allow(int(new_value), 'udp', '%s game port' % self.game.desc)
-		elif option == 'Steam query port':
+		elif option == 'steam query port':
 			if previous_value:
 				Firewall.remove(int(previous_value), 'udp')
 			Firewall.allow(int(new_value), 'udp', '%s Steam query port' % self.game.desc)
 
 	def create_service(self):
 		super().create_service()
-		self.set_option('Server Name', 'My ASKA Server')
+		self.set_option('server name', 'My ASKA Server')
 
 
 if __name__ == '__main__':

@@ -488,54 +488,44 @@ function install_steamcmd() {
 }
 
 ##
-# Install Wine (WineHQ stable) and Xvfb
+# Install Wine (WineHQ stable) + Xvfb
 #
-# ASKA ships only as a Windows binary (AskaServer.exe) and requires Wine
-# to run on Linux. Xvfb provides the virtual display that Wine expects.
-#
-# dpkg --add-architecture i386 must be called before apt update that
-# references the WineHQ repo, so it's done early here.
+# ASKA ships only as a Windows binary (AskaServer.exe). Vanilla Wine is the
+# standard approach used by all known working ASKA dedicated server setups
+# (Pterodactyl, Pelican, Docker images). xvfb-run is required because Wine's
+# background subsystem (explorer.exe etc.) attempts to create windows even in
+# -nographics mode; without a virtual display those processes fail immediately.
 #
 function install_wine() {
-	echo "Installing Wine and Xvfb..."
-
+	echo "Installing Wine + Xvfb..."
 	TYPE_UBUNTU="$(os_like_ubuntu)"
 	TYPE_DEBIAN="$(os_like_debian)"
+	OS_VERSION="$(os_version)"
 
-	if [ "$TYPE_UBUNTU" == 1 ] || [ "$TYPE_DEBIAN" == 1 ]; then
-		# i386 is needed for Wine's 32-bit libraries.
-		# Must be added before the WineHQ apt source is configured.
+	if [ "$TYPE_UBUNTU" == 1 ]; then
 		dpkg --add-architecture i386
-		apt update
-
-		package_install software-properties-common apt-transport-https ca-certificates
-
-		# Add the WineHQ GPG key
-		mkdir -p /etc/apt/keyrings
-		download https://dl.winehq.org/wine-builds/winehq.key /tmp/winehq.key
-		gpg --dearmor < /tmp/winehq.key > /etc/apt/keyrings/winehq-archive.key
-		chmod 0644 /etc/apt/keyrings/winehq-archive.key
-		rm -f /tmp/winehq.key
-
-		if [ "$TYPE_UBUNTU" == 1 ]; then
-			# Ubuntu 24.04 (noble) requires the Ubuntu-specific WineHQ repo
-			. /etc/os-release
-			echo "deb [arch=amd64,i386 signed-by=/etc/apt/keyrings/winehq-archive.key] https://dl.winehq.org/wine-builds/ubuntu/ ${UBUNTU_CODENAME:-noble} main" \
-				> /etc/apt/sources.list.d/winehq.list
+		mkdir -pm755 /etc/apt/keyrings
+		wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+		if [ "$OS_VERSION" -ge 24 ]; then
+			wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources
 		else
-			# Debian 12 (bookworm) or 13 (trixie)
-			. /etc/os-release
-			echo "deb [arch=amd64,i386 signed-by=/etc/apt/keyrings/winehq-archive.key] https://dl.winehq.org/wine-builds/debian/ ${VERSION_CODENAME} main" \
-				> /etc/apt/sources.list.d/winehq.list
+			wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources
 		fi
-
-		apt update
-		apt install -y --install-recommends winehq-stable
-		package_install xvfb
+		apt-get update
+		apt-get install --install-recommends -y winehq-stable
+	elif [ "$TYPE_DEBIAN" == 1 ]; then
+		dpkg --add-architecture i386
+		mkdir -pm755 /etc/apt/keyrings
+		wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+		wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/debian/dists/bookworm/winehq-bookworm.sources
+		apt-get update
+		apt-get install --install-recommends -y winehq-stable
 	else
 		echo 'install_wine: Unsupported or unknown OS' >&2
 		exit 1
 	fi
+
+	package_install xvfb
 }
 
 ##
@@ -592,70 +582,71 @@ EOF
 	chown $GAME_USER:$GAME_USER "$GAME_DIR/.manage.json"
 
 	# Configuration definitions for ASKA's server properties file.
-	# PropertiesConfig uses "key" as the exact key written in server properties.txt.
+	# Keys must match exactly what ASKA writes in AppFiles/server properties.txt.
 	# The "section" field is unused by PropertiesConfig but required by the schema.
 	cat > "$GAME_DIR/configs.yaml" <<'EOF'
 game:
   - name: Server Name
     section: ""
-    key: Server Name
-    default: "ASKA Server"
+    key: server name
+    default: "My ASKA Server"
     type: str
-    help: "Display name shown in the server browser."
+    help: "Name displayed in the session browser."
+    group: Basic
+  - name: Display Name
+    section: ""
+    key: display name
+    default: "Default Session"
+    type: str
+    help: "Session display name for new saves."
     group: Basic
   - name: Password
     section: ""
-    key: Password
+    key: password
     default: ""
     type: str
     help: "Server password. Leave blank for no password."
     group: Basic
   - name: Steam game port
     section: ""
-    key: Steam game port
+    key: steam game port
     default: "27015"
     type: int
     help: "UDP port for game traffic."
     group: Basic
   - name: Steam query port
     section: ""
-    key: Steam query port
+    key: steam query port
     default: "27016"
     type: int
     help: "UDP port for Steam server browser queries."
     group: Basic
   - name: Authentication token
     section: ""
-    key: Authentication token
+    key: authentication token
     default: ""
     type: str
     help: "Steam Game Server Login Token (GSLT). Required for public server listing."
     group: Basic
-  - name: keep server world alive
+  - name: Keep server world alive
     section: ""
     key: keep server world alive
     default: "false"
     type: bool
-    help: "Keep the server world running when no players are connected."
-  - name: Autosave frequency
+    help: "Keep the world running when no players are connected."
+  - name: Autosave style
     section: ""
-    key: Autosave frequency
-    default: "10 min"
+    key: autosave style
+    default: "every morning"
     type: str
     options:
-      - morning
-      - 5 min
-      - 10 min
-      - 15 min
-      - 20 min
+      - every morning
+      - every 5 minutes
+      - every 10 minutes
+      - every 15 minutes
+      - every 20 minutes
       - disabled
     help: "How often the world is automatically saved."
-  - name: Max Players
-    section: ""
-    key: Max Players
-    default: "8"
-    type: int
-    help: "Maximum number of concurrent players (1-16)."
 manager:
   - name: Instance Started (Discord)
     section: Discord
@@ -730,7 +721,7 @@ function install_application() {
 	# Install SteamCMD (needed by manage.py first-run to download game files)
 	install_steamcmd
 
-	# Install Wine + Xvfb (required to run ASKA's Windows binary on Linux)
+	# Install Wine + Xvfb (Wine runs AskaServer.exe; xvfb provides a virtual display)
 	install_wine
 
 	# Install the management script and warlock-manager pip package
