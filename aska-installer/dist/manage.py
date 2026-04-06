@@ -276,12 +276,19 @@ class GameService(BaseService):
 	def is_api_enabled(self) -> bool:
 		return False
 
+	def is_port_open(self) -> bool | None:
+		# warlock-manager's base is_port_open() passes the raw string from
+		# PropertiesConfig to get_listening_port() which expects an int, causing
+		# a TypeError. Returning None tells post_start to skip the port check.
+		return None
+
 	def get_player_count(self) -> int | None:
 		# ASKA has no queryable API; return None (unknown) rather than 0 (empty).
 		return None
 
 	def get_port(self) -> int | None:
-		return self.get_option_value('steam game port')
+		val = self.get_option_value('steam game port')
+		return int(val) if val else None
 
 	def get_game_pid(self) -> int:
 		"""
