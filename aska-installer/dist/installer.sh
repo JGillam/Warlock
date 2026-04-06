@@ -502,10 +502,19 @@ function install_wine() {
 	TYPE_DEBIAN="$(os_like_debian)"
 	OS_VERSION="$(os_version)"
 
-	if [ "$TYPE_UBUNTU" == 1 ]; then
+	if [ "$TYPE_UBUNTU" == 1 ] || [ "$TYPE_DEBIAN" == 1 ]; then
+		# Remove Ubuntu/Debian system wine packages before adding WineHQ.
+		# The system libwine:i386 (version 9.x) conflicts with WineHQ stable
+		# (version 11.x): the i386 loader picks up the wrong libwine.so and
+		# wine cannot find its own DLLs, causing 'could not load kernel32.dll'.
+		DEBIAN_FRONTEND=noninteractive apt-get remove -y wine32 libwine 2>/dev/null || true
+
 		dpkg --add-architecture i386
 		mkdir -pm755 /etc/apt/keyrings
 		wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+	fi
+
+	if [ "$TYPE_UBUNTU" == 1 ]; then
 		if [ "$OS_VERSION" -ge 24 ]; then
 			wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources
 		else
@@ -514,9 +523,6 @@ function install_wine() {
 		apt-get update
 		apt-get install --install-recommends -y winehq-stable
 	elif [ "$TYPE_DEBIAN" == 1 ]; then
-		dpkg --add-architecture i386
-		mkdir -pm755 /etc/apt/keyrings
-		wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
 		wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/debian/dists/bookworm/winehq-bookworm.sources
 		apt-get update
 		apt-get install --install-recommends -y winehq-stable
